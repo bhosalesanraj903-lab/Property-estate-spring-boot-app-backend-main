@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan Portfolio Risk — Early Warning Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#181b24; --panel2:#1f2330; --line:#2a2f3e;
+    --txt:#e8eaed; --muted:#9aa0ad; --accent:#4f8cff;
+    --green:#1d9e75; --amber:#ba7517; --orange:#e2783a; --red:#d8453f; --crit:#a32d2d;
+    --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:var(--font);padding:28px 32px;min-height:100vh}
+  .head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px}
+  .head h1{font-size:23px;font-weight:600;letter-spacing:-0.3px}
+  .head .sub{color:var(--muted);font-size:13px;margin-top:5px}
+  .head .tag{color:var(--muted);font-size:12px;border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .kpi .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.6px}
+  .kpi .val{font-size:30px;font-weight:600;margin-top:8px;letter-spacing:-0.5px}
+  .kpi .note{color:var(--muted);font-size:11px;margin-top:4px}
+  .kpi.hero{background:linear-gradient(135deg,#241418,#181b24);border-color:#3a2226}
+  .kpi.hero .val{color:#ff6b63}
+  .row{display:grid;gap:16px;margin-bottom:20px}
+  .row.two{grid-template-columns:1fr 1fr}
+  .row.split{grid-template-columns:1.2fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h3{font-size:14px;font-weight:600;margin-bottom:14px;color:var(--txt)}
+  .chart-wrap{position:relative;height:230px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:500;padding:8px 6px;border-bottom:1px solid var(--line);font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+  td{padding:9px 6px;border-bottom:1px solid var(--panel2)}
+  .tier{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .t-crit{background:#3a1717;color:#ff8079}
+  .t-high{background:#3a2417;color:#ffa15e}
+  .loss{color:#ff8079;font-weight:600;text-align:right}
+  .insight{background:linear-gradient(135deg,#13243a,#181b24);border:1px solid #1f3a5c;border-radius:12px;padding:16px 22px;display:flex;align-items:center;gap:14px}
+  .insight .ic{font-size:22px}
+  .insight .txt{font-size:14px;line-height:1.5}
+  .insight .txt b{color:#7fb4ff}
+  .foot{margin-top:24px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:14px}
+  .badge{color:var(--green);font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div>
+    <h1>Loan Portfolio Risk — Early Warning Dashboard</h1>
+    <div class="sub">Out-of-sample scoring on 225,639 loans · trained 2007–2015, tested 2016–2018 · AUC 0.72 · isotonic-calibrated</div>
+  </div>
+  <div class="tag">Scored: 2016–2018 (test set)</div>
+</div>
+
+<div class="kpis">
+  <div class="kpi hero">
+    <div class="label">Total Expected Loss</div>
+    <div class="val" id="k-loss">$—</div>
+    <div class="note">PD × exposure × LGD(0.65)</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Portfolio Value</div>
+    <div class="val" id="k-port">$—</div>
+    <div class="note">total principal lent</div>
+  </div>
+  <div class="kpi">
+    <div class="label">High / Critical Loans</div>
+    <div class="val" id="k-high">—</div>
+    <div class="note">flagged for review</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Actual Default Rate</div>
+    <div class="val" id="k-rate">—</div>
+    <div class="note">observed in test set</div>
+  </div>
+</div>
+
+<div class="row two">
+  <div class="card">
+    <h3>Expected Loss by Grade</h3>
+    <div class="chart-wrap"><canvas id="gradeChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h3>Loans by Risk Tier</h3>
+    <div class="chart-wrap"><canvas id="tierChart"></canvas></div>
+  </div>
+</div>
+
+<div class="row split">
+  <div class="card">
+    <h3>Expected Loss by State (Top 10)</h3>
+    <div class="chart-wrap"><canvas id="stateChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h3>Top Riskiest Loans</h3>
+    <table>
+      <thead><tr><th>Amount</th><th>Grade</th><th>State</th><th>Tier</th><th style="text-align:right">Exp. Loss</th></tr></thead>
+      <tbody id="loanTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="insight">
+  <span class="ic">💡</span>
+  <span class="txt">Per-loan risk rises from grade A to G, but <b>total expected loss peaks at grade C</b> — that's where loan volume concentrates. The riskiest 10% of loans hold <b id="ins-cap">~34%</b> of total expected loss, so a credit team reviewing them first protects 3× their proportional share of exposure.</span>
+</div>
+
+<div class="foot">
+  <span>Built by <b style="color:#e8eaed">[Your Name]</b> · Lending Club 2007–2018 · Python · scikit-learn · HistGradientBoosting</span>
+  <span class="badge">Leakage-controlled · honest 0.72 AUC</span>
+</div>
+
+<script>
+// ============================================================
+// SWAP THESE WITH YOUR REAL NUMBERS (from the notebook cell)
+// ============================================================
+const DATA = {
+  totalLoss: 470986764,      // calibrated: real expected loss
+  portfolio: 3259579400,     // loan_amnt sum
+  highCritical: 26558,       // High + Critical (calibrated)
+  defaultRate: 21.3,         // actual_default mean
+  capturePct: 20,            // riskiest 10% -> % defaults caught (20.0%)
+  captureLoss: 34,           // riskiest 10% -> % of total loss (34.4%)
+
+  // expected loss by grade (A..G) in $millions - CALIBRATED
+  grades: ['A','B','C','D','E','F','G'],
+  gradeLoss: [21.8, 80.6, 153.3, 109.3, 61.5, 27.9, 16.4],
+
+  // risk tiers - CALIBRATED (sensible distribution now)
+  tiers: ['Low','Medium','High','Critical'],
+  tierCounts: [85916, 113161, 24407, 2151],
+
+  // top states ($millions) - CALIBRATED
+  states: ['CA','TX','NY','FL','NJ','IL','PA','GA','OH','VA'],
+  stateLoss: [69.4, 40.7, 40.4, 36.6, 17.1, 15.8, 14.8, 14.7, 13.7, 13.4],
+
+  // top riskiest individual loans - CALIBRATED
+  topLoans: [
+    {amt:'$40,000', grade:'F', state:'CA', tier:'Critical', loss:'$22,398'},
+    {amt:'$40,000', grade:'F', state:'MO', tier:'Critical', loss:'$20,828'},
+    {amt:'$35,000', grade:'F', state:'NM', tier:'Critical', loss:'$20,151'},
+    {amt:'$35,000', grade:'F', state:'NJ', tier:'Critical', loss:'$19,904'},
+    {amt:'$35,000', grade:'G', state:'OK', tier:'Critical', loss:'$19,598'},
+    {amt:'$35,000', grade:'F', state:'OH', tier:'Critical', loss:'$19,598'},
+    {amt:'$33,600', grade:'F', state:'CA', tier:'Critical', loss:'$18,913'},
+    {amt:'$35,000', grade:'F', state:'IL', tier:'Critical', loss:'$18,909'},
+  ]
+};
+
+const fmt = n => '$' + (n/1e6 >= 1000 ? (n/1e9).toFixed(1)+'B' : Math.round(n/1e6)+'M');
+
+// KPIs
+document.getElementById('k-loss').textContent = fmt(DATA.totalLoss);
+document.getElementById('k-port').textContent = fmt(DATA.portfolio);
+document.getElementById('k-high').textContent = DATA.highCritical.toLocaleString();
+document.getElementById('k-rate').textContent = DATA.defaultRate + '%';
+document.getElementById('ins-cap').textContent = '~' + DATA.captureLoss + '%';
+
+// table
+const tb = document.getElementById('loanTable');
+DATA.topLoans.forEach(l=>{
+  const cls = l.tier==='Critical'?'t-crit':'t-high';
+  tb.innerHTML += `<tr><td>${l.amt}</td><td>${l.grade}</td><td>${l.state}</td><td><span class="tier ${cls}">${l.tier}</span></td><td class="loss">${l.loss}</td></tr>`;
+});
+
+const gridC = '#2a2f3e', txtC = '#9aa0ad';
+Chart.defaults.color = txtC;
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+// grade bar (red gradient by severity)
+const gradeColors = ['#1d9e75','#63991a','#ba7517','#e2783a','#d8453f','#a32d2d','#7a1f1f'];
+new Chart(document.getElementById('gradeChart'),{
+  type:'bar',
+  data:{labels:DATA.grades,datasets:[{data:DATA.gradeLoss,backgroundColor:gradeColors,borderRadius:5}]},
+  options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y+'M'}}},
+    scales:{y:{grid:{color:gridC},ticks:{callback:v=>'$'+v+'M'}},x:{grid:{display:false}}},
+    maintainAspectRatio:false}
+});
+
+// tier donut
+new Chart(document.getElementById('tierChart'),{
+  type:'doughnut',
+  data:{labels:DATA.tiers,datasets:[{data:DATA.tierCounts,backgroundColor:['#1d9e75','#ba7517','#e2783a','#a32d2d'],borderColor:'#181b24',borderWidth:2}]},
+  options:{plugins:{legend:{position:'right',labels:{padding:14,boxWidth:12}}},cutout:'62%',maintainAspectRatio:false}
+});
+
+// state bar horizontal
+new Chart(document.getElementById('stateChart'),{
+  type:'bar',
+  data:{labels:DATA.states,datasets:[{data:DATA.stateLoss,backgroundColor:'#d8453f',borderRadius:4}]},
+  options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.x+'M'}}},
+    scales:{x:{grid:{color:gridC},ticks:{callback:v=>'$'+v+'M'}},y:{grid:{display:false}}},
+    maintainAspectRatio:false}
+});
+</script>
+</body>
+</html>
