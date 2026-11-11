@@ -3,6 +3,7 @@ package com.properties.real_estate_spring_boot_app.security;
 import java.security.Key;
 import java.util.Date;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import io.jsonwebtoken.Claims;
@@ -13,12 +14,14 @@ import io.jsonwebtoken.security.Keys;
 @Component
 public class JwtUtil {
 
-    private static final String SECRET =
-            "THIS_IS_A_VERY_LONG_SECRET_KEY_FOR_HS256_SIGNING_THIS_IS_SAFE";
-
     private static final long EXPIRATION = 15 * 60 * 1000; // 15 minutes
 
-    private final Key key = Keys.hmacShaKeyFor(SECRET.getBytes());
+    private final Key key;
+
+    // jwt.secret must be at least 32 characters for HS256
+    public JwtUtil(@Value("${jwt.secret}") String secret) {
+        this.key = Keys.hmacShaKeyFor(secret.getBytes());
+    }
 
     // ✅ GENERATE JWT TOKEN
     public String generateToken(Long userId, String email, String role) {
